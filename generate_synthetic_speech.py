@@ -138,11 +138,13 @@ def load_speaker_data(speaker_dir):
         if not filename or not transcript:
             continue
 
+        prompt_text = file_entry.get('Prompt', {}).get('Prompt Text', '')
         audio_path = speaker_dir / filename
         if audio_path.exists():
             utterances.append({
                 'audio_path': audio_path,
-                'transcript': transcript
+                'transcript': transcript,
+                'prompt_text': prompt_text
             })
 
     if not utterances:
@@ -195,6 +197,7 @@ def synthesize_speaker(speaker_id, etiology, extracted_dir, synthetic_dir, tts_m
                 'original_audio': str(utt['audio_path']),
                 'synthetic_audio': str(synthetic_path),
                 'transcript': utt['transcript'],
+                'prompt_text': utt['prompt_text'],
                 'status': 'skipped'
             })
             continue
@@ -216,6 +219,7 @@ def synthesize_speaker(speaker_id, etiology, extracted_dir, synthetic_dir, tts_m
                 'original_audio': str(utt['audio_path']),
                 'synthetic_audio': str(synthetic_path),
                 'transcript': utt['transcript'],
+                'prompt_text': utt['prompt_text'],
                 'status': 'success'
             })
         except Exception as e:
@@ -226,6 +230,7 @@ def synthesize_speaker(speaker_id, etiology, extracted_dir, synthetic_dir, tts_m
                 'original_audio': str(utt['audio_path']),
                 'synthetic_audio': None,
                 'transcript': utt['transcript'],
+                'prompt_text': utt['prompt_text'],
                 'status': f'failed: {e}'
             })
 
