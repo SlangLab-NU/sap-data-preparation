@@ -74,6 +74,17 @@ A `speaker_pairs.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs
 | `etiology` | Synthesize all speakers with a given etiology | `--ratings-csv`, `--etiology` |
 | `speaker` | Synthesize a single speaker | `--speaker-id` |
 
+Example — synthesize a single etiology:
+
+```bash
+python generate_synthetic_speech.py \
+    --sap-data-dir /path/to/sap \
+    --split TRAIN \
+    --mode etiology \
+    --etiology "Parkinson's Disease" \
+    --ratings-csv /path/to/ratings/speaker_ratings_TRAIN.csv
+```
+
 ---
 
 ### Step 4 — Prepare Lhotse manifests (`sap.py`)

@@ -309,6 +309,10 @@ def main():
     results_df = pd.DataFrame(all_pairs)
     results_df.to_csv(output_csv, index=False)
 
+    if results_df.empty or 'status' not in results_df.columns:
+        logger.warning("No results to summarize — check that speakers were found in the extracted dir.")
+        return
+
     successful = len(results_df[results_df['status'] == 'success'])
     skipped = len(results_df[results_df['status'] == 'skipped'])
     failed = len(results_df[results_df['status'].str.startswith('failed', na=False)])
