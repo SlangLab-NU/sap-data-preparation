@@ -1,6 +1,21 @@
 # sap-data-preparation
 Series of scripts to extract, generate synthetic pairs, and create the Lhotse recipe for the SAP dataset
 
+Build Container Image:
+
+In dir of Dockerfile:
+
+```podman build -t <container_name>:latest .```
+
+```podman tag <container_name>:latest <docker.io username>/<container_name>:latest```
+
+```podman push <docker.io username>/<container_name>:latest```
+
+On Cluster:
+
+```apptainer build <container_name>.sif docker://<docker.io username>/<container_name>:latest```
+
+
 ## Environment Setup
 
 All scripts that use StyleTTS2 must be run inside an Apptainer container. Before running Step 3, start the container with:
