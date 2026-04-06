@@ -3,7 +3,7 @@
 
 
 export PYTHONPATH=""
-export apptainer_image=sap_analysis_styletts2.sif
+export apptainer_image=sap_data_prep.sif
 
 apptainer shell --nv \
         --bind /scratch/lewis.jor:/scratch/lewis.jor \
