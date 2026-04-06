@@ -1,1 +1,4 @@
-sap_analysis_styletts2.sif
+*.sif
+*.jsonl
+*jsonl.gz
+uaspeech_recordings_atypical_test.json
