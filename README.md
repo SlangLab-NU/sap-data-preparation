@@ -79,7 +79,7 @@ python generate_synthetic_speech.py \
 ```
 
 **Output:** `<sap-data-dir>/synthetic/<etiology>/<speaker_id>/<utterance>_synthetic.wav`
-A `speaker_pairs.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs.csv` mapping original audio to synthetic audio with transcripts and synthesis status.
+A `speaker_pairs_{SPLIT}.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs_{SPLIT}.csv` (e.g. `speaker_pairs_TRAIN.csv`, `speaker_pairs_DEV.csv`) mapping original audio to synthetic audio with transcripts and synthesis status. Use `--output-csv` to override the path.
 
 #### `--mode` options
 
@@ -104,25 +104,38 @@ python generate_synthetic_speech.py \
 
 ### Step 4 — Prepare Lhotse manifests (`sap.py`)
 
-Reads `speaker_pairs.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests for each split. Failed syntheses are excluded; skipped entries (already-generated audio) are included.
+Reads `speaker_pairs_TRAIN.csv` and `speaker_pairs_DEV.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests for each split. Failed syntheses are excluded; skipped entries (already-generated audio) are included.
 
 ```bash
 python sap.py \
-    --pairs-csv /path/to/sap/synthetic/speaker_pairs.csv \
+    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
+    --dev-csv /path/to/sap/synthetic/speaker_pairs_DEV.csv \
     --output-dir /path/to/manifests
+```
+
+To hold out a TEST set carved from TRAIN by speaker (no speaker bleed guaranteed), use `--test-size`:
+
+```bash
+python sap.py \
+    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
+    --dev-csv /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --output-dir /path/to/manifests \
+    --test-size 30 \
+    --seed 42
 ```
 
 To write human-readable manifests for debugging, add `--json`:
 
 ```bash
 python sap.py \
-    --pairs-csv /path/to/sap/synthetic/speaker_pairs.csv \
+    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
+    --dev-csv /path/to/sap/synthetic/speaker_pairs_DEV.csv \
     --output-dir /path/to/manifests \
     --json
 ```
 
-**Output:** One pair of files per split:
-- `sap_recordings_{split}.jsonl.gz` — audio metadata (path, duration, channels)
-- `sap_supervisions_{split}.jsonl.gz` — transcript, prompt text, speaker ID, and a `custom` field containing the paired synthetic audio path and etiology
+**Output:** One pair of files per split per side:
+- `sap_recordings_{split}_{source|target}.jsonl.gz` — audio metadata (path, duration, channels)
+- `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, prompt text, speaker ID, and etiology
 
-With `--json`, files are written as uncompressed `sap_recordings_{split}.jsonl` / `sap_supervisions_{split}.jsonl`.
+With `--json`, files are written as uncompressed `.jsonl`. With `--test-size`, a `test` split is produced in addition to `train` and `dev`.
