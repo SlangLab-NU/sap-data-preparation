@@ -70,7 +70,7 @@ def get_args():
         "--output-csv",
         type=Path,
         default=None,
-        help="Path to output speaker pairs CSV. Defaults to sap-data-dir/synthetic/speaker_pairs.csv"
+        help="Path to output speaker pairs CSV. Defaults to sap-data-dir/synthetic/speaker_pairs_{SPLIT}.csv"
     )
 
     return parser.parse_args()
@@ -248,7 +248,7 @@ def main():
     synthetic_dir = args.sap_data_dir / "synthetic"
     synthetic_dir.mkdir(parents=True, exist_ok=True)
 
-    output_csv = args.output_csv or synthetic_dir / "speaker_pairs.csv"
+    output_csv = args.output_csv or synthetic_dir / f"speaker_pairs_{args.split}.csv"
 
     # Validate args
     if args.mode == "etiology" and not args.etiology:
