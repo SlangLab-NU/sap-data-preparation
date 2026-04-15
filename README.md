@@ -139,3 +139,14 @@ python sap.py \
 - `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, prompt text, speaker ID, and etiology
 
 With `--json`, files are written as uncompressed `.jsonl`. With `--test-size`, a `test` split is produced in addition to `train` and `dev`.
+
+
+```
+python bin/tokenizer.py \
+    --src-dir /scratch/lewis.jor/VallE/egs/sap/data/manifests \
+    --output-dir /scratch/lewis.jor/VallE/egs/sap/data/tokenized \
+    --prefix sap \
+    --dataset-parts sap_vc \
+    --suffix jsonl \
+    --tts 0
+```
