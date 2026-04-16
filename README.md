@@ -18,15 +18,31 @@ On Cluster:
 
 ## Environment Setup
 
-All scripts that use StyleTTS2 must be run inside an Apptainer container. Before running Step 3, start the container with:
+Two separate containers are used to avoid dependency conflicts between StyleTTS2 and NeMo.
+
+### StyleTTS2 container (`docker/Dockerfile`)
+Used for Steps 3 and 6 (synthesis and Lhotse manifest generation).
 
 ```bash
 bash run_sap_container.sh
 ```
 
-Before running, update `run_sap_container.sh` for your environment:
-- `apptainer_image` — set to the path of your `.sif` file
-- `--bind` — set to your scratch/working directory (format: `/your/path:/your/path`)
+Update `run_sap_container.sh` before running:
+- `apptainer_image` — path to your `sap_data_prep.sif` file
+- `--bind` — your scratch/working directory (format: `/your/path:/your/path`)
+
+### NeMo container (`docker_nemo/Dockerfile`)
+Used for Step 4 (WER calculation). Kept separate to avoid conflicts with StyleTTS2 dependencies.
+
+```bash
+bash run_nemo_container.sh
+```
+
+Update `run_nemo_container.sh` before running:
+- `apptainer_image` — path to your `sap_data_prep_nemo.sif` file
+- `--bind` — your scratch/working directory
+
+Build and push the NeMo container the same way as the StyleTTS2 container (see top of this README), pointing at `docker_nemo/Dockerfile`.
 
 ---
 
@@ -78,6 +94,16 @@ python generate_synthetic_speech.py \
     --ratings-csv /path/to/ratings/speaker_ratings_TRAIN.csv
 ```
 
+Run again for the DEV split (used as the test set):
+
+```bash
+python generate_synthetic_speech.py \
+    --sap-data-dir /path/to/sap \
+    --split DEV \
+    --mode all \
+    --ratings-csv /path/to/ratings/speaker_ratings_DEV.csv
+```
+
 **Output:** `<sap-data-dir>/synthetic/<etiology>/<speaker_id>/<utterance>_synthetic.wav`
 A `speaker_pairs_{SPLIT}.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs_{SPLIT}.csv` (e.g. `speaker_pairs_TRAIN.csv`, `speaker_pairs_DEV.csv`) mapping original audio to synthetic audio with transcripts and synthesis status. Use `--output-csv` to override the path.
 
@@ -102,26 +128,76 @@ python generate_synthetic_speech.py \
 
 ---
 
-### Step 4 — Prepare Lhotse manifests (`sap.py`)
+### Step 4 — Calculate speaker WER (`calculate_sap_wer.py`)
 
-Reads `speaker_pairs_TRAIN.csv` and `speaker_pairs_DEV.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests for each split. Failed syntheses are excluded; skipped entries (already-generated audio) are included.
+Runs NeMo ASR on the extracted reference audio for each speaker and computes per-speaker Word Error Rate (WER). WER is used as an intelligibility proxy to stratify unrated speakers when selecting a validation set. Must be run inside the **NeMo container** with GPU access (see [Environment Setup](#environment-setup)).
+
+Run on the TRAIN split, optionally filtered to a single etiology:
+
+```bash
+# Start the NeMo container first
+bash run_nemo_container.sh
+
+# Then inside the container:
+python calculate_sap_wer.py \
+    --extracted-dir /path/to/sap/extracted \
+    --split TRAIN \
+    --etiology "Parkinson's Disease" \
+    --ratings-csv /path/to/ratings/speaker_ratings_TRAIN.csv \
+    --output /path/to/pd_train_wer.csv
+```
+
+To process all etiologies, omit `--etiology` and `--ratings-csv`:
+
+```bash
+python calculate_sap_wer.py \
+    --extracted-dir /path/to/sap/extracted \
+    --split TRAIN \
+    --output /path/to/train_wer.csv
+```
+
+The script saves results incrementally so it is safe to interrupt and resume — already-processed speakers are skipped automatically on restart.
+
+**Output:** CSV with columns `Speaker_ID`, `Etiology`, `Split`, `Num_Utterances`, `Num_Failed`, `Average_WER`.
+A log file is written alongside the output CSV (e.g. `pd_train_wer.log`) unless overridden with `--log-file`.
+
+---
+
+### Step 5 — Select validation speakers (`select_validation_speakers.py`)
+
+Uses the WER results from Step 4 alongside the speaker ratings CSV to select a stratified validation set from TRAIN speakers. Speakers are binned by intelligibility (using SAP ratings where available, WER otherwise) and sampled to cover the full severity range.
+
+```bash
+python select_validation_speakers.py \
+    --wer-csv /path/to/pd_train_wer.csv \
+    --ratings-csv /path/to/ratings/speaker_ratings_TRAIN.csv \
+    --etiology "Parkinson's Disease" \
+    --output /path/to/val_speakers_PD.csv
+```
+
+**Output:** CSV with a `Speaker_ID` column listing the selected validation speakers. This file is passed directly to `sap.py` via `--val-speakers`.
+
+---
+
+### Step 6 — Prepare Lhotse manifests (`sap.py`)
+
+Reads `speaker_pairs_TRAIN.csv` and `speaker_pairs_DEV.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests. The DEV split is treated as the held-out **test set**. A validation set is carved out of TRAIN by passing a pre-selected speaker list via `--val-speakers` (produced in Step 5). Failed syntheses are excluded; skipped entries (already-generated audio) are included.
 
 ```bash
 python sap.py \
     --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --dev-csv /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --val-speakers /path/to/val_speakers_PD.csv \
     --output-dir /path/to/manifests
 ```
 
-To hold out a TEST set carved from TRAIN by speaker (no speaker bleed guaranteed), use `--test-size`:
+If `--val-speakers` is omitted, only TRAIN and TEST manifests are produced:
 
 ```bash
 python sap.py \
     --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --dev-csv /path/to/sap/synthetic/speaker_pairs_DEV.csv \
-    --output-dir /path/to/manifests \
-    --test-size 30 \
-    --seed 42
+    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --output-dir /path/to/manifests
 ```
 
 To write human-readable manifests for debugging, add `--json`:
@@ -129,7 +205,8 @@ To write human-readable manifests for debugging, add `--json`:
 ```bash
 python sap.py \
     --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --dev-csv /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --val-speakers /path/to/val_speakers_PD.csv \
     --output-dir /path/to/manifests \
     --json
 ```
@@ -138,4 +215,4 @@ python sap.py \
 - `sap_recordings_{split}_{source|target}.jsonl.gz` — audio metadata (path, duration, channels)
 - `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, prompt text, speaker ID, and etiology
 
-With `--json`, files are written as uncompressed `.jsonl`. With `--test-size`, a `test` split is produced in addition to `train` and `dev`.
+Possible splits: `train`, `val`, `test`. With `--json`, files are written as uncompressed `.jsonl`.

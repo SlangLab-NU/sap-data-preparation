@@ -47,10 +47,10 @@ def get_args():
         help="Path to speaker_pairs_TRAIN.csv produced by generate_synthetic_speech.py"
     )
     parser.add_argument(
-        "--dev-csv",
+        "--test-csv",
         type=Path,
         required=True,
-        help="Path to speaker_pairs_DEV.csv produced by generate_synthetic_speech.py"
+        help="Path to speaker_pairs_DEV.csv produced by generate_synthetic_speech.py (used as TEST set)"
     )
     parser.add_argument(
         "--output-dir",
@@ -59,17 +59,11 @@ def get_args():
         help="Directory to write manifest files"
     )
     parser.add_argument(
-        "--test-size",
-        type=int,
-        default=0,
-        help="Number of speakers to hold out from TRAIN as a TEST set. "
-             "Speakers are selected randomly and will not appear in TRAIN manifests."
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed for reproducible train/test speaker split (default: 42)"
+        "--val-speakers",
+        type=Path,
+        default=None,
+        help="CSV of speaker IDs to hold out from TRAIN as the VAL set. "
+             "Must contain a 'Speaker_ID' column. Produced by select_validation_speakers.py."
     )
     parser.add_argument(
         "--json",
@@ -87,33 +81,33 @@ def filter_valid(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return df
 
 
-def split_by_speaker(train_df: pd.DataFrame, test_size: int, seed: int):
+def split_by_val_speakers(train_df: pd.DataFrame, val_speakers_csv: Path):
     """
-    Randomly sample `test_size` speakers from train_df for the TEST set.
-    Returns (train_df, test_df) with no speaker overlap guaranteed.
+    Split train_df into TRAIN and VAL using a CSV of pre-selected speaker IDs.
+    Returns (train_df, val_df) with no speaker overlap guaranteed.
     """
-    speakers = train_df["speaker_id"].unique()
-    if test_size >= len(speakers):
-        raise ValueError(
-            f"--test-size ({test_size}) must be less than the number of "
-            f"TRAIN speakers ({len(speakers)})"
+    val_ids = set(pd.read_csv(val_speakers_csv)["Speaker_ID"].tolist())
+    available = set(train_df["speaker_id"].unique())
+    missing = val_ids - available
+    if missing:
+        logger.warning(
+            f"{len(missing)} val speakers not found in TRAIN CSV and will be skipped: "
+            + ", ".join(sorted(missing)[:5]) + ("..." if len(missing) > 5 else "")
         )
-    test_speakers = set(
-        pd.Series(speakers).sample(n=test_size, random_state=seed).values
-    )
-    test_df = train_df[train_df["speaker_id"].isin(test_speakers)].copy()
-    train_df = train_df[~train_df["speaker_id"].isin(test_speakers)].copy()
+    val_ids = val_ids & available
 
-    # Verify no bleed
-    assert len(set(train_df["speaker_id"]) & test_speakers) == 0, \
-        "Speaker bleed detected between TRAIN and TEST — this is a bug."
+    val_df = train_df[train_df["speaker_id"].isin(val_ids)].copy()
+    train_df = train_df[~train_df["speaker_id"].isin(val_ids)].copy()
+
+    assert len(set(train_df["speaker_id"]) & val_ids) == 0, \
+        "Speaker bleed detected between TRAIN and VAL — this is a bug."
 
     logger.info(
-        f"Train/test speaker split (seed={seed}): "
+        f"Train/val speaker split: "
         f"{len(train_df['speaker_id'].unique())} train speakers, "
-        f"{len(test_speakers)} test speakers"
+        f"{len(val_df['speaker_id'].unique())} val speakers"
     )
-    return train_df, test_df
+    return train_df, val_df
 
 
 def build_manifests(df: pd.DataFrame, split: str) -> dict:
@@ -215,15 +209,15 @@ def main():
     logger.info(f"Reading TRAIN CSV: {args.train_csv}")
     train_df = filter_valid(pd.read_csv(args.train_csv), "TRAIN")
 
-    logger.info(f"Reading DEV CSV: {args.dev_csv}")
-    dev_df = filter_valid(pd.read_csv(args.dev_csv), "DEV")
+    logger.info(f"Reading TEST CSV: {args.test_csv}")
+    test_df = filter_valid(pd.read_csv(args.test_csv), "TEST")
 
-    splits = {"TRAIN": train_df, "DEV": dev_df}
+    splits = {"TRAIN": train_df, "TEST": test_df}
 
-    if args.test_size > 0:
-        train_df, test_df = split_by_speaker(train_df, args.test_size, args.seed)
+    if args.val_speakers:
+        train_df, val_df = split_by_val_speakers(train_df, args.val_speakers)
         splits["TRAIN"] = train_df
-        splits["TEST"] = test_df
+        splits["VAL"] = val_df
 
     for split, df in splits.items():
         manifests = build_manifests(df, split)
