@@ -178,7 +178,10 @@ def expand_numbers(text):
 def normalize_text(text):
     text = text.lower()
     text = expand_numbers(text)
-    text = re.sub(r'[^\w\s]', '', text)
+    # expand punctuation that corresponds to spoken words in email/URL context
+    text = text.replace('@', ' at ')
+    text = re.sub(r'(?<=\w)\.(?=\w)', ' dot ', text)  # dot between word chars (URLs, emails)
+    text = re.sub(r'[^\w\s]', '', text)                # remove remaining punctuation
     text = ' '.join(split_number_words(t) for t in text.split())
     return text.strip()
 
