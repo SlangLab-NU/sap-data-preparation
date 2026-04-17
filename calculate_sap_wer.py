@@ -13,6 +13,12 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+try:
+    from num2words import num2words as _num2words
+    _NUM2WORDS_AVAILABLE = True
+except ImportError:
+    _NUM2WORDS_AVAILABLE = False
+
 
 def get_args():
     parser = argparse.ArgumentParser(description="Calculate WER for SAP speakers using NeMo ASR")
@@ -123,9 +129,10 @@ def load_and_convert_to_mono(audio_path):
 
 
 def expand_numbers(text):
+    if not _NUM2WORDS_AVAILABLE:
+        return text
     try:
-        from num2words import num2words
-        return re.sub(r'\b\d+\b', lambda m: num2words(int(m.group())), text)
+        return re.sub(r'\b\d+\b', lambda m: _num2words(int(m.group())), text)
     except Exception:
         return text
 
@@ -318,6 +325,10 @@ def main():
 
     log_file = args.log_file or args.output.with_suffix('.log')
     setup_file_logging(log_file)
+
+    if not _NUM2WORDS_AVAILABLE:
+        logger.warning("num2words not installed — digit normalization disabled. "
+                       "Install with: pip install --user num2words")
 
     logger.info("=" * 60)
     logger.info("SAP Speaker WER Calculation")
