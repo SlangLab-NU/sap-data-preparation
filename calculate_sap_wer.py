@@ -83,7 +83,9 @@ def get_args():
 
 
 def setup_file_logging(log_file):
-    file_handler = logging.FileHandler(log_file, mode='w')
+    # Remove any existing file handlers (e.g. if called again after NeMo loads)
+    logger.handlers = [h for h in logger.handlers if not isinstance(h, logging.FileHandler)]
+    file_handler = logging.FileHandler(log_file, mode='a')
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)
@@ -135,10 +137,22 @@ def get_speaker_metadata(speaker_dir):
     with open(json_files[0], 'r') as f:
         data = json.load(f)
 
+    all_rating_levels = []
+    for file_entry in data.get('Files', []):
+        for rating in file_entry.get('Ratings', []):
+            level = rating.get('Level')
+            if level is not None:
+                try:
+                    all_rating_levels.append(int(level))
+                except ValueError:
+                    continue
+    avg_rating = sum(all_rating_levels) / len(all_rating_levels) if all_rating_levels else None
+
     return {
         'speaker_id': data.get('Contributor ID', 'Unknown'),
         'etiology': data.get('Etiology', 'Unknown'),
-        'files': data.get('Files', [])
+        'files': data.get('Files', []),
+        'avg_rating': avg_rating
     }
 
 
@@ -239,12 +253,14 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every):
             wer_scores.append(score)
 
             if idx % log_every == 0:
-                logger.info(
+                msg = (
                     f"\n  Example {idx + 1}/{len(ground_truths)}:\n"
                     f"    GT  : {gt_norm}\n"
                     f"    ASR : {pred_norm}\n"
                     f"    WER : {score:.2%}"
                 )
+                logger.info(msg)
+                tqdm.write(msg)
         except Exception as e:
             logger.warning(f"WER calculation error: {e}")
 
@@ -257,6 +273,7 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every):
     return {
         'Speaker_ID': speaker_id,
         'Etiology': etiology,
+        'Average_Rating': round(metadata['avg_rating'], 2) if metadata['avg_rating'] is not None else None,
         'Num_Utterances': len(wer_scores),
         'Num_Failed': skipped,
         'Average_WER': avg_wer
@@ -328,6 +345,9 @@ def main():
     asr_model = load_nemo_model(args.model_name)
     if not asr_model:
         return
+
+    # NeMo modifies Python logging on import — re-attach our file handler after it loads
+    setup_file_logging(log_file)
 
     for speaker_dir in tqdm(to_process, desc=f"WER [{args.split}]"):
         try:
