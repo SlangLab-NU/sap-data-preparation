@@ -4,3 +4,4 @@
 uaspeech_recordings_atypical_test.json
 cuts_dev.json
 tokenizer.py
+docs/
