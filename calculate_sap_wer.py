@@ -245,6 +245,7 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_sour
 
     audio_paths = []
     ground_truths = []
+    raw_texts = []
     skipped = 0
 
     temp_dir = speaker_dir / "temp_mono"
@@ -271,6 +272,7 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_sour
         sf.write(temp_path, data, sr)
         audio_paths.append(str(temp_path))
         ground_truths.append(transcript.strip())
+        raw_texts.append(transcript.strip())
 
     if skipped > 0:
         logger.warning(f"Skipped {skipped} problematic files for {speaker_id}")
@@ -302,7 +304,7 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_sour
     shutil.rmtree(temp_dir, ignore_errors=True)
 
     wer_scores = []
-    for idx, (gt, pred) in enumerate(zip(ground_truths, predictions)):
+    for idx, (gt, pred, raw) in enumerate(zip(ground_truths, predictions, raw_texts)):
         if not pred:
             continue
         try:
@@ -314,9 +316,10 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_sour
             if idx % log_every == 0:
                 msg = (
                     f"\n  Example {idx + 1}/{len(ground_truths)}:\n"
-                    f"    GT  : {gt_norm}\n"
-                    f"    ASR : {pred_norm}\n"
-                    f"    WER : {score:.2%}"
+                    f"    Prompt  : {raw}\n"
+                    f"    GT norm : {gt_norm}\n"
+                    f"    ASR     : {pred_norm}\n"
+                    f"    WER     : {score:.2%}"
                 )
                 logger.info(msg)
                 tqdm.write(msg)
