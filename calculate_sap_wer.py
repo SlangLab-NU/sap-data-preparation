@@ -122,8 +122,17 @@ def load_and_convert_to_mono(audio_path):
         return None, None, str(e)
 
 
+def expand_numbers(text):
+    try:
+        from num2words import num2words
+        return re.sub(r'\b\d+\b', lambda m: num2words(int(m.group())), text)
+    except Exception:
+        return text
+
+
 def normalize_text(text):
     text = text.lower()
+    text = expand_numbers(text)
     text = re.sub(r'[^\w\s]', '', text)
     text = ' '.join(text.split())
     return text.strip()

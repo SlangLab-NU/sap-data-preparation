@@ -4,6 +4,7 @@ RUN pip install --no-cache-dir \
     pandas \
     jiwer \
     soundfile \
-    tqdm
+    tqdm \
+    num2words
 
 WORKDIR /workspace
