@@ -128,6 +128,32 @@ def load_and_convert_to_mono(audio_path):
         return None, None, str(e)
 
 
+_NUMBER_WORDS = [
+    'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+    'seventeen', 'eighteen', 'nineteen', 'twenty', 'thirty', 'forty', 'fifty',
+    'sixty', 'seventy', 'eighty', 'ninety', 'hundred', 'thousand', 'million'
+]
+_NUMBER_WORDS_SORTED = sorted(_NUMBER_WORDS, key=len, reverse=True)
+
+
+def split_number_words(token):
+    """Split concatenated number words, e.g. 'ninethirty' -> 'nine thirty'."""
+    parts = []
+    while token:
+        matched = False
+        for nw in _NUMBER_WORDS_SORTED:
+            if token.startswith(nw):
+                parts.append(nw)
+                token = token[len(nw):]
+                matched = True
+                break
+        if not matched:
+            parts.append(token)
+            break
+    return ' '.join(parts)
+
+
 def expand_numbers(text):
     if not _NUM2WORDS_AVAILABLE:
         return text
@@ -141,7 +167,7 @@ def normalize_text(text):
     text = text.lower()
     text = expand_numbers(text)
     text = re.sub(r'[^\w\s]', '', text)
-    text = ' '.join(text.split())
+    text = ' '.join(split_number_words(t) for t in text.split())
     return text.strip()
 
 
