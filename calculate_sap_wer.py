@@ -84,6 +84,18 @@ def get_args():
         default=10,
         help="Log example transcription every N utterances"
     )
+    parser.add_argument(
+        "--gt-source",
+        type=str,
+        choices=["transcript", "prompt-text"],
+        default="prompt-text",
+        help=(
+            "Field to use as ground truth for WER. "
+            "'prompt-text' uses Prompt.Prompt Text (the original script shown to the speaker). "
+            "'transcript' uses Prompt.Transcript (a cleaned transcription of what was said). "
+            "Default: prompt-text"
+        )
+    )
 
     return parser.parse_args()
 
@@ -216,7 +228,7 @@ def append_result(result, output_path):
         df_new.to_csv(output_path, mode='w', header=True, index=False)
 
 
-def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every):
+def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_source="prompt-text"):
     metadata = get_speaker_metadata(speaker_dir)
     if not metadata:
         logger.warning(f"No metadata found for {speaker_dir.name}")
@@ -225,6 +237,8 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every):
     speaker_id = metadata['speaker_id']
     etiology = metadata['etiology']
     files_data = metadata['files']
+
+    gt_field = 'Prompt Text' if gt_source == 'prompt-text' else 'Transcript'
 
     audio_paths = []
     ground_truths = []
@@ -235,7 +249,7 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every):
 
     for file_entry in files_data:
         filename = file_entry.get('Filename', '')
-        transcript = file_entry.get('Prompt', {}).get('Transcript', '')
+        transcript = file_entry.get('Prompt', {}).get(gt_field, '')
 
         if not transcript:
             continue
@@ -360,6 +374,7 @@ def main():
     logger.info("SAP Speaker WER Calculation")
     logger.info(f"  Split     : {args.split}")
     logger.info(f"  Etiology  : {args.etiology or 'all'}")
+    logger.info(f"  GT source : {args.gt_source}")
     logger.info(f"  Output    : {args.output}")
     logger.info(f"  Log       : {log_file}")
     logger.info("=" * 60)
@@ -398,7 +413,7 @@ def main():
     for speaker_dir in tqdm(to_process, desc=f"WER [{args.split}]"):
         try:
             result = calculate_speaker_wer(
-                speaker_dir, asr_model, args.batch_size, args.log_every
+                speaker_dir, asr_model, args.batch_size, args.log_every, args.gt_source
             )
             if result:
                 result['Split'] = args.split
