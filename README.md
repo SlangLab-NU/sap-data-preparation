@@ -104,8 +104,17 @@ python generate_synthetic_speech.py \
     --ratings-csv /path/to/ratings/speaker_ratings_DEV.csv
 ```
 
+**Transcript used for synthesis:** The `Transcript` field from each utterance's JSON is used as the TTS input (not `Prompt Text`). This ensures the source (atypical speaker audio) and target (synthetic audio) share the same linguistic content — critical for voice conversion training. Two transcript cleaning steps are applied before synthesis:
+
+- **`[bracketed]` annotations are stripped** — these appear at the start of spontaneous prompts and represent the cue shown on screen, not something the speaker said.
+- **Utterances with `(cs: ...)` annotations are skipped entirely** — these recordings contain a second speaker (a clinician reading phrases for the speaker to repeat) and cannot be used for voice conversion.
+
+Disfluencies and false starts written in `(parentheses)` are retained — they are present in the audio.
+
 **Output:** `<sap-data-dir>/synthetic/<etiology>/<speaker_id>/<utterance>_synthetic.wav`
-A `speaker_pairs_{SPLIT}.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs_{SPLIT}.csv` (e.g. `speaker_pairs_TRAIN.csv`, `speaker_pairs_DEV.csv`) mapping original audio to synthetic audio with transcripts and synthesis status. Use `--output-csv` to override the path.
+A `speaker_pairs_{SPLIT}.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs_{SPLIT}.csv` mapping original audio to synthetic audio. Use `--output-csv` to override the path.
+
+CSV columns: `speaker_id`, `etiology`, `original_audio`, `synthetic_audio`, `transcript`, `prompt_text`, `category_description`, `status`.
 
 #### `--mode` options
 
@@ -158,7 +167,9 @@ python calculate_sap_wer.py \
 
 The script saves results incrementally so it is safe to interrupt and resume — already-processed speakers are skipped automatically on restart.
 
-**Output:** CSV with columns `Speaker_ID`, `Etiology`, `Split`, `Num_Utterances`, `Num_Failed`, `Average_WER`.
+**Ground truth source:** Defaults to `--gt-source transcript`, using the `Transcript` field (stripped of `[bracketed]` annotations) to match what is used for synthesis. Utterances with `(cs: ...)` annotations are skipped for the same reason as in Step 3. Use `--gt-source prompt-text` to score against the original `Prompt Text` instead.
+
+**Output:** CSV with columns `Speaker_ID`, `Etiology`, `Average_Rating`, `Split`, `Num_Utterances`, `Num_Failed`, `Average_WER`.
 A log file is written alongside the output CSV (e.g. `pd_train_wer.log`) unless overridden with `--log-file`.
 
 ---
@@ -213,7 +224,7 @@ python sap.py \
 
 **Output:** One pair of files per split per side:
 - `sap_recordings_{split}_{source|target}.jsonl.gz` — audio metadata (path, duration, channels)
-- `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, prompt text, speaker ID, and etiology
+- `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, speaker ID, and custom fields: `prompt_text`, `etiology` (source only), `category_description`
 
 Possible splits: `train`, `val`, `test`. With `--json`, files are written as uncompressed `.jsonl`.
 
