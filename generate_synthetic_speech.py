@@ -116,11 +116,26 @@ def load_styletts2():
     return model
 
 
+def clean_transcript(transcript):
+    """
+    Remove [bracketed] system annotations from the transcript.
+    These appear at the start of spontaneous prompts and are not spoken by the speaker.
+    Parenthesised content (disfluencies, false starts) is kept as it is present in the audio.
+    """
+    import re
+    cleaned = re.sub(r'\[.*?\]', '', transcript)
+    return cleaned.strip()
+
+
 def load_speaker_data(speaker_dir):
     """
     Load all utterances from a speaker's JSON file.
     Returns the first valid audio file as the reference clip,
     and a list of dicts with audio_path and transcript.
+
+    Utterances containing (cs: ...) annotations are skipped — these recordings
+    contain a second speaker (clinician) and cannot be used for voice conversion.
+    [Bracketed] system annotations are stripped from the transcript before synthesis.
     """
     speaker_dir = Path(speaker_dir)
     json_files = list(speaker_dir.glob("*.json"))
@@ -131,6 +146,7 @@ def load_speaker_data(speaker_dir):
         data = json.load(f)
 
     utterances = []
+    skipped_cs = 0
     for file_entry in data.get('Files', []):
         filename = file_entry.get('Filename', '')
         transcript = file_entry.get('Prompt', {}).get('Transcript', '')
@@ -138,14 +154,23 @@ def load_speaker_data(speaker_dir):
         if not filename or not transcript:
             continue
 
+        if '(cs:' in transcript:
+            skipped_cs += 1
+            continue
+
         prompt_text = file_entry.get('Prompt', {}).get('Prompt Text', '')
+        category = file_entry.get('Prompt', {}).get('Category Description', '')
         audio_path = speaker_dir / filename
         if audio_path.exists():
             utterances.append({
                 'audio_path': audio_path,
-                'transcript': transcript,
-                'prompt_text': prompt_text
+                'transcript': clean_transcript(transcript),
+                'prompt_text': prompt_text,
+                'category_description': category,
             })
+
+    if skipped_cs > 0:
+        logger.info(f"  Skipped {skipped_cs} cued-speech utterances (two-speaker audio) in {speaker_dir.name}")
 
     if not utterances:
         return None, []
@@ -198,6 +223,7 @@ def synthesize_speaker(speaker_id, etiology, extracted_dir, synthetic_dir, tts_m
                 'synthetic_audio': str(synthetic_path),
                 'transcript': utt['transcript'],
                 'prompt_text': utt['prompt_text'],
+                'category_description': utt['category_description'],
                 'status': 'skipped'
             })
             continue
@@ -220,6 +246,7 @@ def synthesize_speaker(speaker_id, etiology, extracted_dir, synthetic_dir, tts_m
                 'synthetic_audio': str(synthetic_path),
                 'transcript': utt['transcript'],
                 'prompt_text': utt['prompt_text'],
+                'category_description': utt['category_description'],
                 'status': 'success'
             })
         except Exception as e:
@@ -231,6 +258,7 @@ def synthesize_speaker(speaker_id, etiology, extracted_dir, synthetic_dir, tts_m
                 'synthetic_audio': None,
                 'transcript': utt['transcript'],
                 'prompt_text': utt['prompt_text'],
+                'category_description': utt['category_description'],
                 'status': f'failed: {e}'
             })
 

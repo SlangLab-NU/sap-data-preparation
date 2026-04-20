@@ -88,12 +88,12 @@ def get_args():
         "--gt-source",
         type=str,
         choices=["transcript", "prompt-text"],
-        default="prompt-text",
+        default="transcript",
         help=(
             "Field to use as ground truth for WER. "
+            "'transcript' uses Prompt.Transcript (what was actually said) — matches synthesis input. "
             "'prompt-text' uses Prompt.Prompt Text (the original script shown to the speaker). "
-            "'transcript' uses Prompt.Transcript (a cleaned transcription of what was said). "
-            "Default: prompt-text"
+            "Default: transcript"
         )
     )
 
@@ -175,6 +175,16 @@ def expand_numbers(text):
         return text
 
 
+def clean_transcript(transcript):
+    """
+    Remove [bracketed] system annotations from the transcript.
+    These appear at the start of spontaneous prompts and are not spoken by the speaker.
+    Parenthesised content (disfluencies, false starts) is kept as it is present in the audio.
+    """
+    cleaned = re.sub(r'\[.*?\]', '', transcript)
+    return cleaned.strip()
+
+
 def normalize_text(text):
     text = text.lower()
     text = expand_numbers(text)
@@ -247,15 +257,30 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_sour
     ground_truths = []
     raw_texts = []
     skipped = 0
+    skipped_cs = 0
 
     temp_dir = speaker_dir / "temp_mono"
     temp_dir.mkdir(exist_ok=True)
 
     for file_entry in files_data:
         filename = file_entry.get('Filename', '')
-        transcript = file_entry.get('Prompt', {}).get(gt_field, '')
+        prompt = file_entry.get('Prompt', {})
+        raw_transcript = prompt.get('Transcript', '')
 
-        if not transcript:
+        if not filename:
+            continue
+
+        # Skip cued-speech utterances — two-speaker audio, unusable for scoring
+        if '(cs:' in raw_transcript:
+            skipped_cs += 1
+            continue
+
+        if gt_field == 'Transcript':
+            gt_text = clean_transcript(raw_transcript)
+        else:
+            gt_text = prompt.get('Prompt Text', '')
+
+        if not gt_text:
             continue
 
         audio_path = speaker_dir / filename
@@ -271,9 +296,11 @@ def calculate_speaker_wer(speaker_dir, asr_model, batch_size, log_every, gt_sour
         temp_path = temp_dir / filename
         sf.write(temp_path, data, sr)
         audio_paths.append(str(temp_path))
-        ground_truths.append(transcript.strip())
-        raw_texts.append(transcript.strip())
+        ground_truths.append(gt_text)
+        raw_texts.append(prompt.get('Prompt Text', gt_text))
 
+    if skipped_cs > 0:
+        logger.info(f"Skipped {skipped_cs} cued-speech utterances (two-speaker audio) for {speaker_id}")
     if skipped > 0:
         logger.warning(f"Skipped {skipped} problematic files for {speaker_id}")
 
@@ -380,7 +407,7 @@ def main():
     logger.info("SAP Speaker WER Calculation")
     logger.info(f"  Split     : {args.split}")
     logger.info(f"  Etiology  : {args.etiology or 'all'}")
-    logger.info(f"  GT source : {args.gt_source}")
+    logger.info(f"  GT source : {args.gt_source} ({'stripped Transcript' if args.gt_source == 'transcript' else 'Prompt Text'})")
     logger.info(f"  Output    : {args.output}")
     logger.info(f"  Log       : {log_file}")
     logger.info("=" * 60)

@@ -13,9 +13,11 @@ manifest pairs per split:
 Source SupervisionSegment custom fields:
   - prompt_text: the Prompt Text shown to the speaker
   - etiology: speaker's etiology label
+  - category_description: prompt category (e.g. "Novel Sentences", "Spontaneous Speech Prompts")
 
 Target SupervisionSegment custom fields:
   - prompt_text: the Prompt Text shown to the speaker
+  - category_description: prompt category (e.g. "Novel Sentences", "Spontaneous Speech Prompts")
 """
 
 import argparse
@@ -141,6 +143,7 @@ def build_manifests(df: pd.DataFrame, split: str) -> dict:
             custom={
                 "prompt_text": row["prompt_text"],
                 "etiology": row["etiology"],
+                "category_description": row.get("category_description", ""),
             }
         )
 
@@ -168,6 +171,7 @@ def build_manifests(df: pd.DataFrame, split: str) -> dict:
             text=row["transcript"],
             custom={
                 "prompt_text": row["prompt_text"],
+                "category_description": row.get("category_description", ""),
             }
         )
 
