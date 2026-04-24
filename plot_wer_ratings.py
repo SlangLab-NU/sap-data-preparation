@@ -177,6 +177,13 @@ def plot_binned_bars(rated, unrated, output_dir):
     legend_handles = [Patch(color=bin_color_map[lbl], alpha=0.8, label=lbl) for lbl in bin_order]
     ax_bot.legend(handles=legend_handles, fontsize=8, ncol=4, loc="upper left", title="Predicted bin")
 
+    fig.text(
+        0.5, -0.01,
+        "Predicted bins are assigned by fitting a Gaussian to the WER distribution of rated speakers within each bin,\n"
+        "then assigning each unrated speaker to the bin whose distribution has the highest probability density at their WER.",
+        ha="center", fontsize=9, style="italic", color="dimgray"
+    )
+
     plt.tight_layout()
     out = output_dir / "binned_bar_wer_rating.png"
     plt.savefig(out, dpi=150, bbox_inches="tight")
