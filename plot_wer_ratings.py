@@ -85,10 +85,6 @@ def plot_scatter(rated, unrated, output_dir):
 
 # ── Plot 2: Binned grouped bar chart ──────────────────────────────────────────
 
-# Consistent bin colours used in both subplots
-BIN_COLORS = plt.cm.tab10.colors
-
-
 def plot_binned_bars(rated, unrated, output_dir):
     rated = rated.copy()
     rated["Bin"] = rated["Average_Rating"].apply(assign_bin)
@@ -104,10 +100,6 @@ def plot_binned_bars(rated, unrated, output_dir):
     avg_wer_all = avg_wer_bins + [unrated["Average_WER"].mean()]
     avg_rating_all = avg_rating_bins + [None]
     counts_all = counts_bins + [len(unrated)]
-
-    # Assign a colour per bin (reused in lower subplot)
-    bin_color_map = {lbl: BIN_COLORS[i % len(BIN_COLORS)] for i, lbl in enumerate(bin_order)}
-    bin_color_map["Unrated"] = "lightgray"
 
     x = np.arange(len(all_labels))
     width = 0.35
@@ -143,49 +135,18 @@ def plot_binned_bars(rated, unrated, output_dir):
     ax_top.legend(fontsize=10)
     ax_top.grid(axis="y", alpha=0.3, linestyle="--")
 
-    # ── Bottom: individual speaker WER, coloured by bin ──
-    # Build ordered list: rated speakers sorted by bin then WER, then unrated sorted by WER
-    speaker_rows = []
-    for lbl in bin_order:
-        group = bin_groups.get_group(lbl).sort_values("Average_WER")
-        for _, row in group.iterrows():
-            speaker_rows.append((row["Average_WER"], bin_color_map[lbl], lbl))
-    for _, row in unrated.sort_values("Average_WER").iterrows():
-        speaker_rows.append((row["Average_WER"], bin_color_map["Unrated"], "Unrated"))
+    # ── Bottom: unrated speakers individual WER ──
+    unrated_sorted = unrated.sort_values("Average_WER")
+    speaker_ids = unrated_sorted["Speaker_ID"].tolist()
+    wers_unrated = unrated_sorted["Average_WER"].tolist()
 
-    wers = [r[0] for r in speaker_rows]
-    colors = [r[1] for r in speaker_rows]
-    bins_seq = [r[2] for r in speaker_rows]
-
-    ax_bot.bar(range(len(wers)), wers, color=colors, alpha=0.8, width=1.0)
-
-    y_top = max(wers) * 1.05
-
-    # Bin boundary lines and labels
-    current_bin = bins_seq[0]
-    start_idx = 0
-    for i, b in enumerate(bins_seq):
-        if b != current_bin or i == len(bins_seq) - 1:
-            end_idx = i if b != current_bin else i + 1
-            mid = (start_idx + end_idx - 1) / 2
-            ax_bot.text(mid, y_top, current_bin, ha="center", va="bottom", fontsize=7.5,
-                        color=bin_color_map[current_bin], fontweight="bold")
-            if b != current_bin:
-                ax_bot.axvline(i - 0.5, color="black", linewidth=0.6, alpha=0.4, linestyle="--")
-            current_bin = b
-            start_idx = i
-
-    ax_bot.set_xlim(-0.5, len(wers) - 0.5)
-    ax_bot.set_xticks([])
-    ax_bot.set_xlabel("Individual Speakers (grouped by rating bin, sorted by WER within bin)", fontsize=11)
+    ax_bot.bar(range(len(wers_unrated)), wers_unrated, color="gray", alpha=0.8)
+    ax_bot.set_xticks(range(len(speaker_ids)))
+    ax_bot.set_xticklabels(speaker_ids, rotation=90, fontsize=6)
+    ax_bot.set_xlabel("Speaker ID (unrated)", fontsize=11)
     ax_bot.set_ylabel("Average WER", fontsize=12)
+    ax_bot.set_title("Unrated Speakers — Individual WER", fontsize=12, fontweight="bold")
     ax_bot.grid(axis="y", alpha=0.3, linestyle="--")
-
-    # Legend for bin colours
-    from matplotlib.patches import Patch
-    legend_handles = [Patch(color=bin_color_map[lbl], alpha=0.8, label=lbl)
-                      for lbl in all_labels]
-    ax_bot.legend(handles=legend_handles, fontsize=8, ncol=5, loc="upper left")
 
     plt.tight_layout()
     out = output_dir / "binned_bar_wer_rating.png"
