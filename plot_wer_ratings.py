@@ -156,7 +156,6 @@ def plot_binned_bars(rated, unrated, output_dir):
     ax_top.set_ylabel("Value", fontsize=12)
     ax_top.set_title("Average WER and Rating by Rating Bin\n(TRAIN set)", fontsize=14, fontweight="bold")
     ax_top.legend(fontsize=10)
-    ax_top.yaxis.set_major_locator(plt.MultipleLocator(0.05))
     ax_top.grid(axis="y", alpha=0.3, linestyle="--")
 
     # ── Bottom: unrated speakers individual WER, coloured by predicted bin ──
