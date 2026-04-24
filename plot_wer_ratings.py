@@ -106,13 +106,23 @@ def plot_binned_bars(rated, unrated, output_dir):
 
     bin_color_map = {lbl: BIN_COLORS[i % len(BIN_COLORS)] for i, lbl in enumerate(bin_order)}
 
-    # Predict likely rating bin for unrated speakers via linear regression on rated data
-    slope, intercept, _, _, _ = stats.linregress(rated["Average_WER"], rated["Average_Rating"])
+    # Predict likely rating bin for unrated speakers using Gaussian likelihood per bin.
+    # For each bin, fit a Gaussian to the WER values of its rated speakers, then assign
+    # each unrated speaker to the bin with the highest probability density at their WER.
+    bin_wer_params = {}
+    for lbl in bin_order:
+        wers_in_bin = bin_groups.get_group(lbl)["Average_WER"].values
+        mu = wers_in_bin.mean()
+        sigma = wers_in_bin.std() if wers_in_bin.std() > 0 else 1e-6
+        bin_wer_params[lbl] = (mu, sigma)
+
+    def predict_bin(wer):
+        likelihoods = {lbl: stats.norm.pdf(wer, mu, sigma)
+                       for lbl, (mu, sigma) in bin_wer_params.items()}
+        return max(likelihoods, key=likelihoods.get)
+
     unrated = unrated.copy()
-    unrated["Predicted_Rating"] = (slope * unrated["Average_WER"] + intercept).clip(
-        RATING_BINS[0], RATING_BINS[-1]
-    )
-    unrated["Predicted_Bin"] = unrated["Predicted_Rating"].apply(assign_bin)
+    unrated["Predicted_Bin"] = unrated["Average_WER"].apply(predict_bin)
 
     x = np.arange(len(all_labels))
     width = 0.35
