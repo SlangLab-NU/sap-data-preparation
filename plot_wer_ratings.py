@@ -85,6 +85,9 @@ def plot_scatter(rated, unrated, output_dir):
 
 # ── Plot 2: Binned grouped bar chart ──────────────────────────────────────────
 
+BIN_COLORS = plt.cm.tab10.colors
+
+
 def plot_binned_bars(rated, unrated, output_dir):
     rated = rated.copy()
     rated["Bin"] = rated["Average_Rating"].apply(assign_bin)
@@ -100,6 +103,16 @@ def plot_binned_bars(rated, unrated, output_dir):
     avg_wer_all = avg_wer_bins + [unrated["Average_WER"].mean()]
     avg_rating_all = avg_rating_bins + [None]
     counts_all = counts_bins + [len(unrated)]
+
+    bin_color_map = {lbl: BIN_COLORS[i % len(BIN_COLORS)] for i, lbl in enumerate(bin_order)}
+
+    # Predict likely rating bin for unrated speakers via linear regression on rated data
+    slope, intercept, _, _, _ = stats.linregress(rated["Average_WER"], rated["Average_Rating"])
+    unrated = unrated.copy()
+    unrated["Predicted_Rating"] = (slope * unrated["Average_WER"] + intercept).clip(
+        RATING_BINS[0], RATING_BINS[-1]
+    )
+    unrated["Predicted_Bin"] = unrated["Predicted_Rating"].apply(assign_bin)
 
     x = np.arange(len(all_labels))
     width = 0.35
@@ -136,18 +149,23 @@ def plot_binned_bars(rated, unrated, output_dir):
     ax_top.legend(fontsize=10)
     ax_top.grid(axis="y", alpha=0.3, linestyle="--")
 
-    # ── Bottom: unrated speakers individual WER ──
+    # ── Bottom: unrated speakers individual WER, coloured by predicted bin ──
     unrated_sorted = unrated.sort_values("Average_WER")
     speaker_ids = unrated_sorted["Speaker_ID"].tolist()
     wers_unrated = unrated_sorted["Average_WER"].tolist()
+    bar_colors = [bin_color_map[b] for b in unrated_sorted["Predicted_Bin"]]
 
-    ax_bot.bar(range(len(wers_unrated)), wers_unrated, color="gray", alpha=0.8)
+    ax_bot.bar(range(len(wers_unrated)), wers_unrated, color=bar_colors, alpha=0.8)
     ax_bot.set_xticks(range(len(speaker_ids)))
     ax_bot.set_xticklabels(speaker_ids, rotation=90, fontsize=6)
-    ax_bot.set_xlabel("Speaker ID (unrated)", fontsize=11)
+    ax_bot.set_xlabel("Speaker ID (unrated, coloured by predicted rating bin)", fontsize=11)
     ax_bot.set_ylabel("Average WER", fontsize=12)
-    ax_bot.set_title("Unrated Speakers — Individual WER", fontsize=12, fontweight="bold")
+    ax_bot.set_title("Unrated Speakers — Individual WER (colour = predicted rating bin)", fontsize=12, fontweight="bold")
     ax_bot.grid(axis="y", alpha=0.3, linestyle="--")
+
+    from matplotlib.patches import Patch
+    legend_handles = [Patch(color=bin_color_map[lbl], alpha=0.8, label=lbl) for lbl in bin_order]
+    ax_bot.legend(handles=legend_handles, fontsize=8, ncol=4, loc="upper left", title="Predicted bin")
 
     plt.tight_layout()
     out = output_dir / "binned_bar_wer_rating.png"
