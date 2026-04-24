@@ -106,7 +106,8 @@ def plot_binned_bars(rated, unrated, output_dir):
 
     fig, (ax_top, ax_bot) = plt.subplots(
         2, 1, figsize=(16, 14),
-        gridspec_kw={"height_ratios": [1, 1.6]}
+        gridspec_kw={"height_ratios": [1, 1.6]},
+        sharey=True
     )
 
     # ── Top: binned summary ──
