@@ -15,9 +15,11 @@ Step 2: extract_speaker_data_and_ratings.py
         └─> speaker_ratings_{TRAIN,DEV}.csv
 
 Step 3: generate_synthetic_speech.py          [StyleTTS2 container]
-    extracted/ + speaker_ratings_TRAIN.csv
-        └─> synthetic/<etiology>/<speaker_id>/*_synthetic.wav
-        └─> synthetic/speaker_pairs_{TRAIN,DEV}.csv
+    extracted/ + speaker_ratings_TRAIN.csv  (run once per etiology)
+        └─> synthetic/Parkinsons_Disease/<speaker_id>/*_synthetic.wav
+        └─> synthetic/Parkinsons_Disease/speaker_pairs_{TRAIN,DEV}.csv
+        └─> synthetic/ALS/<speaker_id>/*_synthetic.wav
+        └─> synthetic/ALS/speaker_pairs_{TRAIN,DEV}.csv
 
 Step 4: calculate_sap_wer.py                  [NeMo container, GPU]
     extracted/ + speaker_ratings_TRAIN.csv
@@ -32,7 +34,9 @@ Step 5: select_validation_speakers.py         (run once per etiology)
         └─> als_val_speakers_distribution.png
 
 Step 6: sap.py                                [StyleTTS2 container]
-    speaker_pairs_{TRAIN,DEV}.csv + pd_val_speakers.csv [+ als_val_speakers.csv ...]
+    Parkinsons_Disease/speaker_pairs_TRAIN.csv [+ ALS/speaker_pairs_TRAIN.csv ...]
+    + speaker_pairs_DEV.csv
+    + pd_val_speakers.csv [+ als_val_speakers.csv ...]
         └─> sap_recordings_{train,val,test}_{source,target}.jsonl.gz
         └─> sap_supervisions_{train,val,test}_{source,target}.jsonl.gz
 ```
@@ -152,7 +156,11 @@ python generate_synthetic_speech.py \
 Disfluencies and false starts written in `(parentheses)` are retained — they are present in the audio.
 
 **Output:** `<sap-data-dir>/synthetic/<etiology>/<speaker_id>/<utterance>_synthetic.wav`
-A `speaker_pairs_{SPLIT}.csv` is also written to `<sap-data-dir>/synthetic/speaker_pairs_{SPLIT}.csv` mapping original audio to synthetic audio. Use `--output-csv` to override the path.
+
+A `speaker_pairs_{SPLIT}.csv` is written per etiology:
+- `--mode etiology` → `<sap-data-dir>/synthetic/<etiology>/speaker_pairs_{SPLIT}.csv`
+- `--mode all` → `<sap-data-dir>/synthetic/speaker_pairs_{SPLIT}.csv` (combined)
+- Use `--output-csv` to override the path in either mode.
 
 CSV columns: `speaker_id`, `etiology`, `original_audio`, `synthetic_audio`, `transcript`, `prompt_text`, `category_description`, `status`.
 
@@ -268,22 +276,24 @@ A distribution plot (`<etiology>_val_speakers_distribution.png`) is also saved a
 
 Reads `speaker_pairs_TRAIN.csv` and `speaker_pairs_DEV.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests. The DEV split is treated as the held-out **test set**. A validation set is carved out of TRAIN by passing a pre-selected speaker list via `--val-speakers` (produced in Step 5). Failed syntheses are excluded; skipped entries (already-generated audio) are included.
 
-Pass one val speakers CSV per etiology — they are merged automatically before splitting:
+Pass one `speaker_pairs_TRAIN.csv` per etiology for `--train-csv`, and one val speakers CSV per etiology for `--val-speakers`. Both are merged automatically before processing.
 
 ```bash
 python sap.py \
-    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
-    --val-speakers /path/to/data/pd_val_speakers.csv /path/to/data/als_val_speakers.csv \
+    --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
+                /path/to/synthetic/ALS/speaker_pairs_TRAIN.csv \
+    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
+    --val-speakers /path/to/data/pd_val_speakers.csv \
+                   /path/to/data/als_val_speakers.csv \
     --output-dir /path/to/manifests
 ```
 
-For a single etiology, pass just one file:
+For a single etiology:
 
 ```bash
 python sap.py \
-    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
+    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
     --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests
 ```
@@ -292,8 +302,8 @@ If `--val-speakers` is omitted, only TRAIN and TEST manifests are produced:
 
 ```bash
 python sap.py \
-    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
+    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
     --output-dir /path/to/manifests
 ```
 
@@ -301,8 +311,8 @@ To write human-readable manifests for debugging, add `--json`:
 
 ```bash
 python sap.py \
-    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
+    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
     --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests \
     --json

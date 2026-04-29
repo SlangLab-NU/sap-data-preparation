@@ -45,8 +45,11 @@ def get_args():
     parser.add_argument(
         "--train-csv",
         type=Path,
+        nargs="+",
         required=True,
-        help="Path to speaker_pairs_TRAIN.csv produced by generate_synthetic_speech.py"
+        help="One or more speaker_pairs_TRAIN.csv files produced by generate_synthetic_speech.py. "
+             "Pass one per etiology (e.g. synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv "
+             "synthetic/ALS/speaker_pairs_TRAIN.csv); they are merged before processing."
     )
     parser.add_argument(
         "--test-csv",
@@ -217,8 +220,11 @@ def main():
     args = get_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Reading TRAIN CSV: {args.train_csv}")
-    train_df = filter_valid(pd.read_csv(args.train_csv), "TRAIN")
+    train_parts = []
+    for csv_path in args.train_csv:
+        logger.info(f"Reading TRAIN CSV: {csv_path}")
+        train_parts.append(pd.read_csv(csv_path))
+    train_df = filter_valid(pd.concat(train_parts, ignore_index=True), "TRAIN")
 
     logger.info(f"Reading TEST CSV: {args.test_csv}")
     test_df = filter_valid(pd.read_csv(args.test_csv), "TEST")

@@ -276,7 +276,13 @@ def main():
     synthetic_dir = args.sap_data_dir / "synthetic"
     synthetic_dir.mkdir(parents=True, exist_ok=True)
 
-    output_csv = args.output_csv or synthetic_dir / f"speaker_pairs_{args.split}.csv"
+    if args.output_csv:
+        output_csv = args.output_csv
+    elif args.mode == "etiology":
+        etiology_dir = args.etiology.replace(" ", "_").replace("'", "")
+        output_csv = synthetic_dir / etiology_dir / f"speaker_pairs_{args.split}.csv"
+    else:
+        output_csv = synthetic_dir / f"speaker_pairs_{args.split}.csv"
 
     # Validate args
     if args.mode == "etiology" and not args.etiology:
