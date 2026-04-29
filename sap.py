@@ -1,14 +1,18 @@
 """
 Lhotse recipe for the SAP dataset.
-Builds Recording and SupervisionSet manifests from the speaker_pairs_{SPLIT}.csv
-files produced by generate_synthetic_speech.py.
 
-Produces separate source (atypical speaker) and target (StyleTTS2 synthetic)
-manifest pairs per split:
+TRAIN and VAL manifests are built from per-etiology speaker_pairs_{SPLIT}.csv
+files produced by generate_synthetic_speech.py. Each produces source (atypical
+speaker) and target (StyleTTS2 synthetic) manifest pairs.
+
+TEST manifests are built directly from the extracted DEV speaker JSON files —
+no synthetic speech is generated for the test set.
+
+Output files per split:
   sap_recordings_{split}_source.jsonl[.gz]
   sap_supervisions_{split}_source.jsonl[.gz]
-  sap_recordings_{split}_target.jsonl[.gz]
-  sap_supervisions_{split}_target.jsonl[.gz]
+  sap_recordings_{split}_target.jsonl[.gz]   (TRAIN and VAL only)
+  sap_supervisions_{split}_target.jsonl[.gz]  (TRAIN and VAL only)
 
 Source SupervisionSegment custom fields:
   - prompt_text: the Prompt Text shown to the speaker
@@ -17,11 +21,13 @@ Source SupervisionSegment custom fields:
 
 Target SupervisionSegment custom fields:
   - prompt_text: the Prompt Text shown to the speaker
-  - category_description: prompt category (e.g. "Novel Sentences", "Spontaneous Speech Prompts")
+  - category_description: prompt category
 """
 
 import argparse
+import json
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -52,10 +58,12 @@ def get_args():
              "synthetic/ALS/speaker_pairs_TRAIN.csv); they are merged before processing."
     )
     parser.add_argument(
-        "--test-csv",
+        "--extracted-test-dir",
         type=Path,
         required=True,
-        help="Path to speaker_pairs_DEV.csv produced by generate_synthetic_speech.py (used as TEST set)"
+        help="Path to the extracted DEV speaker directory (e.g. data/extracted/DEV). "
+             "Test manifests are built directly from speaker JSON files — "
+             "no synthetic speech is required for the test set."
     )
     parser.add_argument(
         "--output-dir",
@@ -81,6 +89,11 @@ def get_args():
     return parser.parse_args()
 
 
+def clean_transcript(transcript):
+    """Strip [bracketed] system annotations; keep parenthesised disfluencies."""
+    return re.sub(r'\[.*?\]', '', transcript).strip()
+
+
 def filter_valid(df: pd.DataFrame, label: str) -> pd.DataFrame:
     total = len(df)
     df = df[~df["status"].apply(lambda s: str(s).startswith("failed"))].copy()
@@ -99,6 +112,7 @@ def split_by_val_speakers(train_df: pd.DataFrame, val_speakers_csvs: list):
         ids = pd.read_csv(csv_path)["Speaker_ID"].tolist()
         val_ids.update(ids)
         logger.info(f"Loaded {len(ids)} val speakers from {csv_path.name}")
+
     available = set(train_df["speaker_id"].unique())
     missing = val_ids - available
     if missing:
@@ -125,7 +139,7 @@ def split_by_val_speakers(train_df: pd.DataFrame, val_speakers_csvs: list):
 def build_manifests(df: pd.DataFrame, split: str) -> dict:
     """
     Build source (atypical) and target (synthetic) Recording and SupervisionSegment
-    lists for a single split. Returns dict with 'source' and 'target' sub-dicts.
+    lists for TRAIN or VAL. Returns dict with 'source' and 'target' sub-dicts.
     """
     result = {
         "source": {"recordings": [], "supervisions": []},
@@ -191,6 +205,85 @@ def build_manifests(df: pd.DataFrame, split: str) -> dict:
     return result
 
 
+def build_test_manifests(extracted_test_dir: Path) -> dict:
+    """
+    Build source-only TEST manifests by reading speaker JSON files directly
+    from the extracted DEV directory. No synthetic speech is required.
+
+    Applies the same filtering as generate_synthetic_speech.py:
+      - Skips utterances with (cs: ...) cued-speech annotations
+      - Strips [bracketed] annotations from transcripts
+    """
+    result = {"source": {"recordings": [], "supervisions": []}}
+
+    speaker_dirs = sorted([d for d in extracted_test_dir.iterdir() if d.is_dir()])
+    logger.info(f"Building TEST manifests from {len(speaker_dirs)} speakers in {extracted_test_dir}")
+
+    skipped_speakers = 0
+    for speaker_dir in tqdm(speaker_dirs, desc="Building TEST manifests"):
+        json_files = list(speaker_dir.glob("*.json"))
+        if not json_files:
+            skipped_speakers += 1
+            continue
+
+        with open(json_files[0], 'r') as f:
+            data = json.load(f)
+
+        speaker_id = data.get('Contributor ID', speaker_dir.name)
+        etiology = data.get('Etiology', 'Unknown')
+
+        for file_entry in data.get('Files', []):
+            filename = file_entry.get('Filename', '')
+            if not filename:
+                continue
+
+            prompt = file_entry.get('Prompt', {})
+            raw_transcript = prompt.get('Transcript', '')
+
+            if '(cs:' in raw_transcript:
+                continue
+
+            transcript = clean_transcript(raw_transcript)
+            if not transcript:
+                continue
+
+            audio_path = speaker_dir / filename
+            if not audio_path.exists():
+                continue
+
+            recording_id = f"{speaker_id}_{audio_path.stem}"
+
+            try:
+                recording = Recording.from_file(str(audio_path), recording_id)
+            except Exception as e:
+                logger.error(f"Failed to load {audio_path}: {e}")
+                continue
+
+            segment = SupervisionSegment(
+                id=recording_id,
+                recording_id=recording_id,
+                start=0.0,
+                duration=recording.duration,
+                language="English",
+                speaker=speaker_id,
+                text=transcript,
+                custom={
+                    "prompt_text": prompt.get('Prompt Text', ''),
+                    "etiology": etiology,
+                    "category_description": prompt.get('Category Description', ''),
+                }
+            )
+
+            result["source"]["recordings"].append(recording)
+            result["source"]["supervisions"].append(segment)
+
+    if skipped_speakers:
+        logger.warning(f"Skipped {skipped_speakers} speaker dirs with no JSON metadata")
+
+    logger.info(f"[TEST] {len(result['source']['recordings'])} source recordings")
+    return result
+
+
 def save_manifests(split: str, data: dict, output_dir: Path, use_json: bool):
     suffix = "jsonl" if use_json else "jsonl.gz"
     split_lower = split.lower()
@@ -226,10 +319,7 @@ def main():
         train_parts.append(pd.read_csv(csv_path))
     train_df = filter_valid(pd.concat(train_parts, ignore_index=True), "TRAIN")
 
-    logger.info(f"Reading TEST CSV: {args.test_csv}")
-    test_df = filter_valid(pd.read_csv(args.test_csv), "TEST")
-
-    splits = {"TRAIN": train_df, "TEST": test_df}
+    splits = {"TRAIN": train_df}
 
     if args.val_speakers:
         train_df, val_df = split_by_val_speakers(train_df, args.val_speakers)
@@ -239,6 +329,9 @@ def main():
     for split, df in splits.items():
         manifests = build_manifests(df, split)
         save_manifests(split, manifests, args.output_dir, args.json)
+
+    test_manifests = build_test_manifests(args.extracted_test_dir)
+    save_manifests("TEST", test_manifests, args.output_dir, args.json)
 
     logger.info("Done.")
 

@@ -35,10 +35,12 @@ Step 5: select_validation_speakers.py         (run once per etiology)
 
 Step 6: sap.py                                [StyleTTS2 container]
     Parkinsons_Disease/speaker_pairs_TRAIN.csv [+ ALS/speaker_pairs_TRAIN.csv ...]
-    + speaker_pairs_DEV.csv
+    + extracted/DEV/  (test manifests built directly from JSON — no synthesis needed)
     + pd_val_speakers.csv [+ als_val_speakers.csv ...]
-        └─> sap_recordings_{train,val,test}_{source,target}.jsonl.gz
-        └─> sap_supervisions_{train,val,test}_{source,target}.jsonl.gz
+        └─> sap_recordings_{train,val}_{source,target}.jsonl.gz
+        └─> sap_supervisions_{train,val}_{source,target}.jsonl.gz
+        └─> sap_recordings_test_source.jsonl.gz
+        └─> sap_supervisions_test_source.jsonl.gz
 ```
 
 Steps 3 and 6 require the **StyleTTS2 container**. Step 4 requires the **NeMo container** with GPU access. Steps 1, 2, and 5 can be run in either container or a standard Python environment.
@@ -274,7 +276,10 @@ A distribution plot (`<etiology>_val_speakers_distribution.png`) is also saved a
 
 ### Step 6 — Prepare Lhotse manifests (`sap.py`)
 
-Reads `speaker_pairs_TRAIN.csv` and `speaker_pairs_DEV.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests. The DEV split is treated as the held-out **test set**. A validation set is carved out of TRAIN by passing a pre-selected speaker list via `--val-speakers` (produced in Step 5). Failed syntheses are excluded; skipped entries (already-generated audio) are included.
+Builds Lhotse `RecordingSet` and `SupervisionSet` manifests for TRAIN, VAL, and TEST.
+
+- **TRAIN / VAL** — built from per-etiology `speaker_pairs_TRAIN.csv` files. A VAL set is carved out of TRAIN via `--val-speakers`. Failed syntheses are excluded.
+- **TEST** — built directly from the extracted DEV speaker JSON files. No synthetic speech is needed for evaluation.
 
 Pass one `speaker_pairs_TRAIN.csv` per etiology for `--train-csv`, and one val speakers CSV per etiology for `--val-speakers`. Both are merged automatically before processing.
 
@@ -282,7 +287,7 @@ Pass one `speaker_pairs_TRAIN.csv` per etiology for `--train-csv`, and one val s
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
                 /path/to/synthetic/ALS/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
+    --extracted-test-dir /path/to/data/extracted/DEV \
     --val-speakers /path/to/data/pd_val_speakers.csv \
                    /path/to/data/als_val_speakers.csv \
     --output-dir /path/to/manifests
@@ -293,7 +298,7 @@ For a single etiology:
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
+    --extracted-test-dir /path/to/data/extracted/DEV \
     --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests
 ```
@@ -303,7 +308,7 @@ If `--val-speakers` is omitted, only TRAIN and TEST manifests are produced:
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
+    --extracted-test-dir /path/to/data/extracted/DEV \
     --output-dir /path/to/manifests
 ```
 
@@ -312,17 +317,21 @@ To write human-readable manifests for debugging, add `--json`:
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
-    --test-csv  /path/to/synthetic/speaker_pairs_DEV.csv \
+    --extracted-test-dir /path/to/data/extracted/DEV \
     --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests \
     --json
 ```
 
-**Output:** One pair of files per split per side:
-- `sap_recordings_{split}_{source|target}.jsonl.gz` — audio metadata (path, duration, channels)
-- `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, speaker ID, and custom fields: `prompt_text`, `etiology` (source only), `category_description`
+**Output:**
+- TRAIN and VAL: source + target manifest pairs
+  - `sap_recordings_{train|val}_{source|target}.jsonl.gz`
+  - `sap_supervisions_{train|val}_{source|target}.jsonl.gz`
+- TEST: source only (no synthetic speech for evaluation)
+  - `sap_recordings_test_source.jsonl.gz`
+  - `sap_supervisions_test_source.jsonl.gz`
 
-Possible splits: `train`, `val`, `test`. With `--json`, files are written as uncompressed `.jsonl`.
+With `--json`, files are written as uncompressed `.jsonl`. Custom fields on source supervisions: `prompt_text`, `etiology`, `category_description`.
 
 
 ```
