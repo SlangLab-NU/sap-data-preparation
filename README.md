@@ -1,5 +1,42 @@
 # sap-data-preparation
-Series of scripts to extract, generate synthetic pairs, and create the Lhotse recipe for the SAP dataset
+Series of scripts to extract, generate synthetic pairs, and create the Lhotse recipe for the SAP dataset.
+
+---
+
+## Pipeline Overview
+
+```
+Step 1: extract_sap_data.py
+    Raw SAP tar archives
+        └─> extracted/{TRAIN,DEV}/<speaker_id>/
+
+Step 2: extract_speaker_data_and_ratings.py
+    extracted/
+        └─> speaker_ratings_{TRAIN,DEV}.csv
+
+Step 3: generate_synthetic_speech.py          [StyleTTS2 container]
+    extracted/ + speaker_ratings_TRAIN.csv
+        └─> synthetic/<etiology>/<speaker_id>/*_synthetic.wav
+        └─> synthetic/speaker_pairs_{TRAIN,DEV}.csv
+
+Step 4: calculate_sap_wer.py                  [NeMo container, GPU]
+    extracted/ + speaker_ratings_TRAIN.csv
+        └─> pd_train_wer.csv
+
+Step 5: select_validation_speakers.py
+    pd_train_wer.csv
+        └─> val_speakers.csv
+        └─> val_speakers_distribution.png
+
+Step 6: sap.py                                [StyleTTS2 container]
+    speaker_pairs_{TRAIN,DEV}.csv + val_speakers.csv
+        └─> sap_recordings_{train,val,test}_{source,target}.jsonl.gz
+        └─> sap_supervisions_{train,val,test}_{source,target}.jsonl.gz
+```
+
+Steps 3 and 6 require the **StyleTTS2 container**. Step 4 requires the **NeMo container** with GPU access. Steps 1, 2, and 5 can be run in either container or a standard Python environment.
+
+---
 
 Build Container Image:
 
@@ -176,17 +213,36 @@ A log file is written alongside the output CSV (e.g. `pd_train_wer.log`) unless 
 
 ### Step 5 — Select validation speakers (`select_validation_speakers.py`)
 
-Uses the WER results from Step 4 alongside the speaker ratings CSV to select a stratified validation set from TRAIN speakers. Speakers are binned by intelligibility (using SAP ratings where available, WER otherwise) and sampled to cover the full severity range.
+Uses the WER results from Step 4 to select a stratified validation set from TRAIN speakers. Each rating bin contributes a fixed fraction of its available speakers, ensuring coverage across the full severity range. This generalises across etiologies — run once per WER CSV.
+
+Rated speakers are binned by `Average_Rating`. Unrated speakers are assigned a predicted bin using Gaussian likelihood over the WER distribution of each rated bin (same method as `plot_wer_ratings.py`).
+
+**Sampling rule per bin:**
+- 1 speaker available → 0 selected (cannot spare from training)
+- 2+ speakers available → `max(1, round(n × fraction))`, capped at `n − 1` (always retains at least one speaker per bin in training)
 
 ```bash
 python select_validation_speakers.py \
     --wer-csv /path/to/pd_train_wer.csv \
-    --ratings-csv /path/to/ratings/speaker_ratings_TRAIN.csv \
-    --etiology "Parkinson's Disease" \
-    --output /path/to/val_speakers_PD.csv
+    --output /path/to/val_speakers.csv \
+    --val-fraction 0.15 \
+    --seed 42
 ```
 
-**Output:** CSV with a `Speaker_ID` column listing the selected validation speakers. This file is passed directly to `sap.py` via `--val-speakers`.
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--wer-csv` | required | WER CSV from Step 4 |
+| `--output` | required | Output CSV path (must contain `Speaker_ID` column) |
+| `--val-fraction` | `0.15` | Fraction of each bin to hold out |
+| `--min-utterances` | `50` | Exclude speakers with fewer utterances |
+| `--seed` | `42` | Random seed for reproducibility |
+| `--no-plot` | off | Skip saving the distribution plot |
+
+**Output:** `val_speakers.csv` with columns `Speaker_ID`, `Effective_Bin`, `Average_Rating`, `Average_WER`, `Num_Utterances`. The `Speaker_ID` column is required by `sap.py --val-speakers`.
+
+A distribution plot (`val_speakers_distribution.png`) is also saved alongside the CSV, showing train vs val speaker counts per bin (rated and predicted separately).
 
 ---
 
