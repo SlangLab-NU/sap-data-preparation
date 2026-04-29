@@ -219,11 +219,19 @@ def build_test_manifests(extracted_test_dir: Path) -> dict:
     speaker_dirs = sorted([d for d in extracted_test_dir.iterdir() if d.is_dir()])
     logger.info(f"Building TEST manifests from {len(speaker_dirs)} speakers in {extracted_test_dir}")
 
-    skipped_speakers = 0
+    counts = {
+        "no_json":          0,
+        "cued_speech":      0,
+        "empty_transcript": 0,
+        "audio_missing":    0,
+        "load_error":       0,
+        "ok":               0,
+    }
+
     for speaker_dir in tqdm(speaker_dirs, desc="Building TEST manifests"):
         json_files = list(speaker_dir.glob("*.json"))
         if not json_files:
-            skipped_speakers += 1
+            counts["no_json"] += 1
             continue
 
         with open(json_files[0], 'r') as f:
@@ -241,14 +249,17 @@ def build_test_manifests(extracted_test_dir: Path) -> dict:
             raw_transcript = prompt.get('Transcript', '')
 
             if '(cs:' in raw_transcript:
+                counts["cued_speech"] += 1
                 continue
 
             transcript = clean_transcript(raw_transcript)
             if not transcript:
+                counts["empty_transcript"] += 1
                 continue
 
             audio_path = speaker_dir / filename
             if not audio_path.exists():
+                counts["audio_missing"] += 1
                 continue
 
             recording_id = f"{speaker_id}_{audio_path.stem}"
@@ -257,6 +268,7 @@ def build_test_manifests(extracted_test_dir: Path) -> dict:
                 recording = Recording.from_file(str(audio_path), recording_id)
             except Exception as e:
                 logger.error(f"Failed to load {audio_path}: {e}")
+                counts["load_error"] += 1
                 continue
 
             segment = SupervisionSegment(
@@ -276,11 +288,17 @@ def build_test_manifests(extracted_test_dir: Path) -> dict:
 
             result["source"]["recordings"].append(recording)
             result["source"]["supervisions"].append(segment)
+            counts["ok"] += 1
 
-    if skipped_speakers:
-        logger.warning(f"Skipped {skipped_speakers} speaker dirs with no JSON metadata")
-
-    logger.info(f"[TEST] {len(result['source']['recordings'])} source recordings")
+    logger.info(
+        f"[TEST] utterance counts — "
+        f"ok: {counts['ok']}, "
+        f"audio missing: {counts['audio_missing']}, "
+        f"cued-speech: {counts['cued_speech']}, "
+        f"empty transcript: {counts['empty_transcript']}, "
+        f"load error: {counts['load_error']}, "
+        f"no JSON: {counts['no_json']}"
+    )
     return result
 
 
