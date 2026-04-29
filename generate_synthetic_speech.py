@@ -340,6 +340,7 @@ def main():
         all_pairs.extend(pairs)
 
     # Write CSV
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
     results_df = pd.DataFrame(all_pairs)
     results_df.to_csv(output_csv, index=False)
 
