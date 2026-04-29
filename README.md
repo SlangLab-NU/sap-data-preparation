@@ -23,13 +23,16 @@ Step 4: calculate_sap_wer.py                  [NeMo container, GPU]
     extracted/ + speaker_ratings_TRAIN.csv
         └─> pd_train_wer.csv
 
-Step 5: select_validation_speakers.py
-    pd_train_wer.csv
-        └─> val_speakers.csv
-        └─> val_speakers_distribution.png
+Step 5: select_validation_speakers.py         (run once per etiology)
+    pd_train_wer.csv  --etiology "Parkinson's Disease"
+        └─> pd_val_speakers.csv
+        └─> pd_val_speakers_distribution.png
+    als_train_wer.csv  --etiology "ALS"
+        └─> als_val_speakers.csv
+        └─> als_val_speakers_distribution.png
 
 Step 6: sap.py                                [StyleTTS2 container]
-    speaker_pairs_{TRAIN,DEV}.csv + val_speakers.csv
+    speaker_pairs_{TRAIN,DEV}.csv + pd_val_speakers.csv [+ als_val_speakers.csv ...]
         └─> sap_recordings_{train,val,test}_{source,target}.jsonl.gz
         └─> sap_supervisions_{train,val,test}_{source,target}.jsonl.gz
 ```
@@ -221,28 +224,43 @@ Rated speakers are binned by `Average_Rating`. Unrated speakers are assigned a p
 - 1 speaker available → 0 selected (cannot spare from training)
 - 2+ speakers available → `max(1, round(n × fraction))`, capped at `n − 1` (always retains at least one speaker per bin in training)
 
+Run once per etiology:
+
 ```bash
+# Parkinson's Disease
 python select_validation_speakers.py \
     --wer-csv /path/to/pd_train_wer.csv \
-    --output /path/to/val_speakers.csv \
+    --etiology "Parkinson's Disease" \
+    --output /path/to/data/pd_val_speakers.csv \
+    --val-fraction 0.15 \
+    --seed 42
+
+# ALS (when available)
+python select_validation_speakers.py \
+    --wer-csv /path/to/als_train_wer.csv \
+    --etiology "ALS" \
+    --output /path/to/data/als_val_speakers.csv \
     --val-fraction 0.15 \
     --seed 42
 ```
+
+If your WER CSV contains only one etiology you can omit `--etiology`, but it is recommended to always pass it explicitly so the output is clearly labelled.
 
 **Options:**
 
 | Flag | Default | Description |
 |---|---|---|
 | `--wer-csv` | required | WER CSV from Step 4 |
+| `--etiology` | `None` | Filter to this etiology (required for multi-etiology CSVs) |
 | `--output` | required | Output CSV path (must contain `Speaker_ID` column) |
 | `--val-fraction` | `0.15` | Fraction of each bin to hold out |
 | `--min-utterances` | `50` | Exclude speakers with fewer utterances |
 | `--seed` | `42` | Random seed for reproducibility |
 | `--no-plot` | off | Skip saving the distribution plot |
 
-**Output:** `val_speakers.csv` with columns `Speaker_ID`, `Effective_Bin`, `Average_Rating`, `Average_WER`, `Num_Utterances`. The `Speaker_ID` column is required by `sap.py --val-speakers`.
+**Output:** `<etiology>_val_speakers.csv` with columns `Speaker_ID`, `Etiology`, `Effective_Bin`, `Average_Rating`, `Average_WER`, `Num_Utterances`. The `Speaker_ID` column is required by `sap.py --val-speakers`.
 
-A distribution plot (`val_speakers_distribution.png`) is also saved alongside the CSV, showing train vs val speaker counts per bin (rated and predicted separately).
+A distribution plot (`<etiology>_val_speakers_distribution.png`) is also saved alongside the CSV, showing train vs val speaker counts per bin (rated and predicted separately).
 
 ---
 
@@ -250,11 +268,23 @@ A distribution plot (`val_speakers_distribution.png`) is also saved alongside th
 
 Reads `speaker_pairs_TRAIN.csv` and `speaker_pairs_DEV.csv` and builds Lhotse `RecordingSet` and `SupervisionSet` manifests. The DEV split is treated as the held-out **test set**. A validation set is carved out of TRAIN by passing a pre-selected speaker list via `--val-speakers` (produced in Step 5). Failed syntheses are excluded; skipped entries (already-generated audio) are included.
 
+Pass one val speakers CSV per etiology — they are merged automatically before splitting:
+
 ```bash
 python sap.py \
     --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
     --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
-    --val-speakers /path/to/val_speakers_PD.csv \
+    --val-speakers /path/to/data/pd_val_speakers.csv /path/to/data/als_val_speakers.csv \
+    --output-dir /path/to/manifests
+```
+
+For a single etiology, pass just one file:
+
+```bash
+python sap.py \
+    --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
+    --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
+    --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests
 ```
 
@@ -273,7 +303,7 @@ To write human-readable manifests for debugging, add `--json`:
 python sap.py \
     --train-csv /path/to/sap/synthetic/speaker_pairs_TRAIN.csv \
     --test-csv  /path/to/sap/synthetic/speaker_pairs_DEV.csv \
-    --val-speakers /path/to/val_speakers_PD.csv \
+    --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests \
     --json
 ```

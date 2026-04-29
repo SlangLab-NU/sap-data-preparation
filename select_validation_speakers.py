@@ -17,10 +17,13 @@ Sampling rules per bin:
 Output CSV contains Speaker_ID and metadata. Compatible with sap.py --val-speakers,
 which performs the actual train/val split with a no-leak assertion.
 
+Run once per etiology. Pass all output CSVs to sap.py --val-speakers to combine them.
+
 Usage:
     python select_validation_speakers.py \\
         --wer-csv ../VallE/egs/sap/pd_train_wer.csv \\
-        --output ../VallE/egs/sap/data/val_speakers.csv \\
+        --etiology "Parkinson's Disease" \\
+        --output ../VallE/egs/sap/data/pd_val_speakers.csv \\
         [--val-fraction 0.15] \\
         [--min-utterances 50] \\
         [--seed 42]
@@ -48,6 +51,9 @@ def get_args():
     )
     parser.add_argument("--wer-csv", type=Path, required=True,
                         help="Path to WER CSV produced by calculate_sap_wer.py")
+    parser.add_argument("--etiology", type=str, default=None,
+                        help="Filter to this etiology before selection (e.g. \"Parkinson's Disease\"). "
+                             "Required when the WER CSV contains multiple etiologies.")
     parser.add_argument("--output", type=Path, required=True,
                         help="Output CSV path (Speaker_ID column required by sap.py --val-speakers)")
     parser.add_argument("--val-fraction", type=float, default=0.15,
@@ -163,13 +169,16 @@ def plot_distribution(pool, selected, fraction, output_path):
     ax.set_xticklabels(populated_bins, fontsize=10)
     ax.set_xlabel("Rating Bin (actual or predicted)", fontsize=12)
     ax.set_ylabel("Number of Speakers", fontsize=12)
-    ax.set_title(
-        f"Speaker Distribution by Rating Bin\n"
-        f"Val fraction: {fraction:.0%}  |  "
+    etiology_label = pool["Etiology"].iloc[0] if "Etiology" in pool.columns else ""
+    title = f"Speaker Distribution by Rating Bin"
+    if etiology_label:
+        title += f" — {etiology_label}"
+    title += (
+        f"\nVal fraction: {fraction:.0%}  |  "
         f"Val total: {sum(val_rated) + sum(val_pred)}  |  "
-        f"Train total: {sum(train_rated) + sum(train_pred)}",
-        fontsize=13, fontweight="bold"
+        f"Train total: {sum(train_rated) + sum(train_pred)}"
     )
+    ax.set_title(title, fontsize=13, fontweight="bold")
     ax.legend(fontsize=9, loc="upper right")
     ax.grid(axis="y", alpha=0.3, linestyle="--")
     ax.set_ylim(0, ax.get_ylim()[1] * 1.12)
@@ -211,6 +220,16 @@ def main():
     df["Average_Rating"] = pd.to_numeric(df["Average_Rating"], errors="coerce")
     df["Average_WER"] = pd.to_numeric(df["Average_WER"], errors="coerce")
 
+    if args.etiology:
+        before = len(df)
+        df = df[df["Etiology"] == args.etiology]
+        logger.info(f"Etiology filter '{args.etiology}': {len(df)}/{before} speakers retained")
+        if len(df) == 0:
+            raise ValueError(
+                f"No speakers found for etiology '{args.etiology}'. "
+                f"Available: {sorted(pd.read_csv(args.wer_csv)['Etiology'].dropna().unique())}"
+            )
+
     before = len(df)
     df = df.dropna(subset=["Average_WER"])
     if len(df) < before:
@@ -242,7 +261,7 @@ def main():
 
     selected = stratified_sample(pool, args.val_fraction, args.seed)
 
-    out_cols = ["Speaker_ID", "Effective_Bin", "Average_Rating", "Average_WER", "Num_Utterances"]
+    out_cols = ["Speaker_ID", "Etiology", "Effective_Bin", "Average_Rating", "Average_WER", "Num_Utterances"]
     selected = selected[out_cols].sort_values(["Effective_Bin", "Average_WER"]).reset_index(drop=True)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

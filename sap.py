@@ -63,9 +63,11 @@ def get_args():
     parser.add_argument(
         "--val-speakers",
         type=Path,
+        nargs="+",
         default=None,
-        help="CSV of speaker IDs to hold out from TRAIN as the VAL set. "
-             "Must contain a 'Speaker_ID' column. Produced by select_validation_speakers.py."
+        help="One or more CSVs of speaker IDs to hold out from TRAIN as the VAL set. "
+             "Each must contain a 'Speaker_ID' column. Produced by select_validation_speakers.py. "
+             "Pass one file per etiology; they are merged before splitting."
     )
     parser.add_argument(
         "--json",
@@ -83,12 +85,17 @@ def filter_valid(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return df
 
 
-def split_by_val_speakers(train_df: pd.DataFrame, val_speakers_csv: Path):
+def split_by_val_speakers(train_df: pd.DataFrame, val_speakers_csvs: list):
     """
-    Split train_df into TRAIN and VAL using a CSV of pre-selected speaker IDs.
+    Split train_df into TRAIN and VAL using one or more CSVs of pre-selected speaker IDs.
+    Multiple CSVs (one per etiology) are merged before splitting.
     Returns (train_df, val_df) with no speaker overlap guaranteed.
     """
-    val_ids = set(pd.read_csv(val_speakers_csv)["Speaker_ID"].tolist())
+    val_ids = set()
+    for csv_path in val_speakers_csvs:
+        ids = pd.read_csv(csv_path)["Speaker_ID"].tolist()
+        val_ids.update(ids)
+        logger.info(f"Loaded {len(ids)} val speakers from {csv_path.name}")
     available = set(train_df["speaker_id"].unique())
     missing = val_ids - available
     if missing:
