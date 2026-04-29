@@ -34,13 +34,10 @@ Step 5: select_validation_speakers.py         (run once per etiology)
         └─> als_val_speakers_distribution.png
 
 Step 6: sap.py                                [StyleTTS2 container]
-    Parkinsons_Disease/speaker_pairs_TRAIN.csv [+ ALS/speaker_pairs_TRAIN.csv ...]
-    + extracted/DEV/  (test manifests built directly from JSON — no synthesis needed)
+    Parkinsons_Disease/speaker_pairs_{TRAIN,DEV}.csv [+ ALS/...]
     + pd_val_speakers.csv [+ als_val_speakers.csv ...]
-        └─> sap_recordings_{train,val}_{source,target}.jsonl.gz
-        └─> sap_supervisions_{train,val}_{source,target}.jsonl.gz
-        └─> sap_recordings_test_source.jsonl.gz
-        └─> sap_supervisions_test_source.jsonl.gz
+        └─> sap_recordings_{train,val,test}_{source,target}.jsonl.gz
+        └─> sap_supervisions_{train,val,test}_{source,target}.jsonl.gz
 ```
 
 Steps 3 and 6 require the **StyleTTS2 container**. Step 4 requires the **NeMo container** with GPU access. Steps 1, 2, and 5 can be run in either container or a standard Python environment.
@@ -278,16 +275,14 @@ A distribution plot (`<etiology>_val_speakers_distribution.png`) is also saved a
 
 Builds Lhotse `RecordingSet` and `SupervisionSet` manifests for TRAIN, VAL, and TEST.
 
-- **TRAIN / VAL** — built from per-etiology `speaker_pairs_TRAIN.csv` files. A VAL set is carved out of TRAIN via `--val-speakers`. Failed syntheses are excluded.
-- **TEST** — built directly from the extracted DEV speaker JSON files. No synthetic speech is needed for evaluation.
-
-Pass one `speaker_pairs_TRAIN.csv` per etiology for `--train-csv`, and one val speakers CSV per etiology for `--val-speakers`. Both are merged automatically before processing.
+Built from per-etiology `speaker_pairs_{SPLIT}.csv` files for all splits. Pass one CSV per etiology for both `--train-csv` and `--test-csv`; they are merged automatically before processing.
 
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
                 /path/to/synthetic/ALS/speaker_pairs_TRAIN.csv \
-    --extracted-test-dir /path/to/data/extracted/DEV \
+    --test-csv  /path/to/synthetic/Parkinsons_Disease/speaker_pairs_DEV.csv \
+                /path/to/synthetic/ALS/speaker_pairs_DEV.csv \
     --val-speakers /path/to/data/pd_val_speakers.csv \
                    /path/to/data/als_val_speakers.csv \
     --output-dir /path/to/manifests
@@ -298,7 +293,7 @@ For a single etiology:
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
-    --extracted-test-dir /path/to/data/extracted/DEV \
+    --test-csv  /path/to/synthetic/Parkinsons_Disease/speaker_pairs_DEV.csv \
     --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests
 ```
@@ -308,7 +303,7 @@ If `--val-speakers` is omitted, only TRAIN and TEST manifests are produced:
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
-    --extracted-test-dir /path/to/data/extracted/DEV \
+    --test-csv  /path/to/synthetic/Parkinsons_Disease/speaker_pairs_DEV.csv \
     --output-dir /path/to/manifests
 ```
 
@@ -317,21 +312,17 @@ To write human-readable manifests for debugging, add `--json`:
 ```bash
 python sap.py \
     --train-csv /path/to/synthetic/Parkinsons_Disease/speaker_pairs_TRAIN.csv \
-    --extracted-test-dir /path/to/data/extracted/DEV \
+    --test-csv  /path/to/synthetic/Parkinsons_Disease/speaker_pairs_DEV.csv \
     --val-speakers /path/to/data/pd_val_speakers.csv \
     --output-dir /path/to/manifests \
     --json
 ```
 
-**Output:**
-- TRAIN and VAL: source + target manifest pairs
-  - `sap_recordings_{train|val}_{source|target}.jsonl.gz`
-  - `sap_supervisions_{train|val}_{source|target}.jsonl.gz`
-- TEST: source only (no synthetic speech for evaluation)
-  - `sap_recordings_test_source.jsonl.gz`
-  - `sap_supervisions_test_source.jsonl.gz`
+**Output:** One pair of files per split per side:
+- `sap_recordings_{split}_{source|target}.jsonl.gz` — audio metadata
+- `sap_supervisions_{split}_{source|target}.jsonl.gz` — transcript, speaker ID, custom fields: `prompt_text`, `etiology` (source only), `category_description`
 
-With `--json`, files are written as uncompressed `.jsonl`. Custom fields on source supervisions: `prompt_text`, `etiology`, `category_description`.
+Possible splits: `train`, `val`, `test`. With `--json`, files are written as uncompressed `.jsonl`.
 
 
 ```
